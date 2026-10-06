@@ -14,7 +14,7 @@ async function prepareStorage() {
 
 function getFilePath(storageName) {
   validateStorageName(storageName);
-  const filePath = path.resolve(storageDir, storageName);
+  const filePath = path.resolve(storageDir, path.basename(storageName));
   if (path.dirname(filePath) !== storageDir) throw errors.invalidStorageName();
   return filePath;
 }

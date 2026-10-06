@@ -124,6 +124,23 @@ test('serviço mantém upload síncrono e autoriza download antes de acessar sto
   await assert.rejects(service.download(randomUUID(), 'owner'), { code: 'DOCUMENT_NOT_FOUND' });
 });
 
+test('limpa arquivos gravados pelo Multer quando a validação do upload falha', async () => {
+  const directory = await storage.prepareStorage();
+  for (const [originalname, owner, code] of [
+    [' ', 'rejected-owner', 'INVALID_FILE'],
+    ['relatorio.txt', '', 'INVALID_OWNER'],
+  ]) {
+    const filename = randomUUID();
+    await writeFile(path.join(directory, filename), 'conteúdo');
+    await assert.rejects(controller.upload({
+      file: { originalname, filename, size: 9 }, user: { id: owner },
+    }, {}), { code });
+    assert.equal(await storage.findFile(filename), null);
+  }
+  assert.deepEqual(service.list('rejected-owner'), []);
+  await assert.rejects(controller.upload({ user: { id: 'user' } }, {}), { code: 'FILE_REQUIRED' });
+});
+
 test('middleware unifica ApiError, MulterError e erros genéricos sem vazar detalhes', () => {
   for (const [error, request, status, code] of [
     [errors.documentNotFound(), {}, 404, 'DOCUMENT_NOT_FOUND'],

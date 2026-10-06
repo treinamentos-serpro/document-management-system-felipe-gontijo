@@ -2,6 +2,7 @@ const multer = require('multer');
 const service = require('../services/documentService');
 const ApiError = require('../errors/ApiError');
 const errors = require('../services/errorFactory');
+const storage = require('../services/storageService');
 
 async function storageDestination(req, file, callback) {
   try {
@@ -11,8 +12,15 @@ async function storageDestination(req, file, callback) {
   }
 }
 
-function upload(req, res) {
-  return res.status(201).json(service.upload(req.file, req.user.id));
+async function upload(req, res) {
+  let document;
+  try {
+    document = service.upload(req.file, req.user.id);
+  } catch (error) {
+    if (req.file) await storage.removeFile(req.file.filename);
+    throw error;
+  }
+  return res.status(201).json(document);
 }
 
 function list(req, res) {
