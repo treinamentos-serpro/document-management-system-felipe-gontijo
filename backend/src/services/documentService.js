@@ -1,18 +1,13 @@
 const { randomUUID } = require('node:crypto');
 const repository = require('../repositories/documentRepository');
-
-function toMetadata(document) {
-  return {
-    id: document.id,
-    originalName: document.originalName,
-    size: document.size,
-    mimeType: document.mimeType,
-    uploadedAt: document.uploadedAt,
-    owner: document.owner,
-  };
-}
+const { toMetadata } = require('./documentMapper');
+const validator = require('./documentValidator');
+const storage = require('./storageService');
+const errors = require('./errorFactory');
 
 function upload(file, owner) {
+  validator.validateFile(file);
+  validator.validateOwner(owner);
   const document = repository.save({
     id: randomUUID(),
     originalName: file.originalname,
@@ -26,28 +21,24 @@ function upload(file, owner) {
 }
 
 function list(owner) {
+  validator.validateOwner(owner);
   return repository.findByOwner(owner)
     .sort((first, second) => second.uploadedAt.localeCompare(first.uploadedAt))
     .map(toMetadata);
 }
 
-function notFound() {
-  return Object.assign(new Error('Documento não encontrado.'), {
-    statusCode: 404,
-    code: 'DOCUMENT_NOT_FOUND',
-  });
-}
-
 async function download(id, owner) {
+  validator.validateId(id);
+  validator.validateOwner(owner);
   const document = repository.findById(id);
-  if (!document || document.owner !== owner) throw notFound();
-  const filePath = await repository.findFile(document.storageName);
-  if (!filePath) throw notFound();
+  if (!document || document.owner !== owner) throw errors.documentNotFound();
+  const filePath = await storage.findFile(document.storageName);
+  if (!filePath) throw errors.documentNotFound();
   return { filePath, originalName: document.originalName, mimeType: document.mimeType };
 }
 
 async function prepareStorage() {
-  return repository.prepareStorage();
+  return storage.prepareStorage();
 }
 
 module.exports = { upload, list, download, prepareStorage };
