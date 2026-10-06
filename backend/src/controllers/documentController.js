@@ -1,5 +1,8 @@
 const multer = require('multer');
 const service = require('../services/documentService');
+const ApiError = require('../errors/ApiError');
+const errors = require('../services/errorFactory');
+const storage = require('../services/storageService');
 
 async function storageDestination(req, file, callback) {
   try {
@@ -9,13 +12,15 @@ async function storageDestination(req, file, callback) {
   }
 }
 
-function upload(req, res) {
-  if (!req.file) {
-    return res.status(400).json({
-      error: { code: 'FILE_REQUIRED', message: 'Envie um arquivo no campo file.' },
-    });
+async function upload(req, res) {
+  let document;
+  try {
+    document = service.upload(req.file, req.user.id);
+  } catch (error) {
+    if (req.file) await storage.removeFile(req.file.filename);
+    throw error;
   }
-  return res.status(201).json(service.upload(req.file, req.user.id));
+  return res.status(201).json(document);
 }
 
 function list(req, res) {
@@ -29,9 +34,7 @@ async function download(req, res, next) {
   }, (error) => {
     if (!error) return;
     if (!res.headersSent && (error.code === 'ENOENT' || error.status === 404)) {
-      error.statusCode = 404;
-      error.code = 'DOCUMENT_NOT_FOUND';
-      error.message = 'Documento não encontrado.';
+      return next(errors.documentNotFound());
     }
     next(error);
   });
@@ -41,32 +44,18 @@ function handleError(error, req, res, next) {
   if (res.headersSent) return next(error);
 
   if (error instanceof multer.MulterError) {
-    const tooLarge = error.code === 'LIMIT_FILE_SIZE';
-    return res.status(tooLarge ? 413 : 400).json({
-      error: {
-        code: tooLarge ? 'FILE_TOO_LARGE' : 'FILE_REQUIRED',
-        message: tooLarge
-          ? 'O arquivo excede o tamanho máximo permitido.'
-          : 'Envie apenas um arquivo no campo file.',
-      },
-    });
+    error = error.code === 'LIMIT_FILE_SIZE' ? errors.fileTooLarge() : errors.unexpectedFile();
   }
 
-  if (error.code === 'DOCUMENT_NOT_FOUND') {
-    return res.status(404).json({
-      error: { code: error.code, message: 'Documento não encontrado.' },
-    });
+  if (!(error instanceof ApiError)) {
+    const isUpload = req.method === 'POST' && req.path === '/upload';
+    const isDownload = req.method === 'GET' && req.path.endsWith('/download');
+    error = isUpload ? errors.uploadFailed()
+      : isDownload ? errors.downloadFailed() : errors.internalError();
   }
 
-  const isUpload = req.method === 'POST' && req.path === '/upload';
-  const isDownload = req.method === 'GET' && req.path.endsWith('/download');
-  return res.status(500).json({
-    error: {
-      code: isUpload ? 'UPLOAD_FAILED' : isDownload ? 'DOWNLOAD_FAILED' : 'INTERNAL_ERROR',
-      message: isUpload
-        ? 'Não foi possível enviar o documento.'
-        : isDownload ? 'Não foi possível baixar o documento.' : 'Não foi possível concluir a operação.',
-    },
+  return res.status(error.statusCode).json({
+    error: { code: error.code, message: error.message },
   });
 }
 
